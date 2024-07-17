@@ -16,10 +16,7 @@ public class QueryBuilder<TModel>
 
     string _tableName = "";
 
-    public QueryBuilder(Type tableType)
-    {
-        _tableName = tableType.Name;
-    }
+    public QueryBuilder(Type tableType) => _tableName = tableType.Name;
 
     public QueryBuilder()
     {
@@ -28,9 +25,7 @@ public class QueryBuilder<TModel>
 
     public QueryBuilder<TModel> Query(TModel model)
     {
-        var type = typeof(TModel);
-        if (string.IsNullOrEmpty(_tableName))
-            _tableName = type.Name;
+        _ = CheckType();
 
         _query += $"SELECT * FROM [dbo].[{_tableName}] ";
         _model = model;
@@ -39,22 +34,14 @@ public class QueryBuilder<TModel>
 
     public QueryBuilder<TModel> Where(Expression<Func<TModel, object>> expression, WhereType type = WhereType.Equal)
     {
-        var property = GetPropertyInfo(expression);
+        PropertyInfo property = GetPropertyInfo(expression);
         object? value = property.GetValue(_model);
 
         if (!_query.Contains("WHERE"))
             _query += " WHERE ";
 
         _query += $" [{property.Name}] ";
-        _query += type switch
-        {
-            WhereType.Equal => " = ",
-            WhereType.NotEqual => " != ",
-            WhereType.Is => " IS ",
-            WhereType.Like => " LIKE ",
-            _ => " = "
-        };
-        _query += FormatValue(value ?? "");
+        _query += BuildQueryValue(type, value);
 
         return this;
     }
@@ -68,6 +55,27 @@ public class QueryBuilder<TModel>
     public QueryBuilder<TModel> Or()
     {
         _query += " OR ";
+        return this;
+    }
+
+
+    public QueryBuilder<TModel> OrderBy(Expression<Func<TModel, object>> expression, OrderType orderType = OrderType.Non)
+    {
+        PropertyInfo property = GetPropertyInfo(expression);
+        _query += $" ORDER BY [{property.Name}] ";
+        _query += orderType switch
+        {
+            OrderType.DESC => " DESC ",
+            OrderType.ASC => " ASC ",
+            OrderType.Non => " ",
+            _ => "  ",
+        };
+        return this;
+    }
+
+    public QueryBuilder<TModel> WithPagination(int page, int pageSize)
+    {
+        _query += $" OFFSET {page} FETCH NEXT {pageSize} ROWS ONLY ";
         return this;
     }
 
@@ -88,20 +96,40 @@ public class QueryBuilder<TModel>
         throw new ArgumentException($"The expression doesn't indicate a valid property. [ {property} ]");
     }
 
-    static string FormatValue(object value)
+    static string FormatValue(object? value)
             => value switch
             {
-                string strValue => $"N'{strValue.Replace("'", "''")}'",
-                DateTime dateTimeValue => $"'{dateTimeValue:yyyy-MM-dd HH:mm:ss}'",
+                null => "",
+                string strValue => strValue.Replace("'", "''"),
+                DateTime dateTimeValue => $"{dateTimeValue:yyyy-MM-dd HH:mm:ss}",
                 _ => value.ToString() ?? ""
             };
-}
 
-public enum WhereType
-{
-    Equal,
-    NotEqual,
-    Is,
-    Like,
-}
+    static (string format, string startWith, string endWith) QueryFormat(WhereType type)
+        => type switch
+        {
+            WhereType.Equal => (" = ", "", ""),
+            WhereType.NotEqual => (" != ", "", ""),
+            WhereType.Is => (" IS ", "", ""),
+            WhereType.Like => (" LIKE ", "%", "%"),
+            _ => (" = ", "", "")
+        };
 
+    static string BuildQueryValue(WhereType type, object? value)
+    {
+        (string format, string startWith, string endWith) = QueryFormat(type);
+        string valueFormat = FormatValue(value);
+
+        return $"{format} N'{startWith}{valueFormat}{endWith}'";
+    }
+
+    string CheckType()
+    {
+        if (string.IsNullOrEmpty(_tableName))
+        {
+            Type type = typeof(TModel);
+            _tableName = type.Name;
+        }
+        return _tableName;
+    }
+}
