@@ -1,14 +1,13 @@
 ﻿using System.Linq.Expressions;
 using System.Reflection;
+using System.Text.RegularExpressions;
 
 namespace BaseRepositoryDapper.Query;
-
-
 /// <summary>
 /// Query builder for dapper on <see cref="TModel"/>
 /// </summary>
 /// <typeparam name="TModel">Type of model for query</typeparam>
-public class QueryBuilder<TModel>
+public partial class QueryBuilder<TModel>
 {
     string _query = "";
 
@@ -16,7 +15,10 @@ public class QueryBuilder<TModel>
 
     string _tableName = "";
 
-    public QueryBuilder(Type tableType) => _tableName = tableType.Name;
+    public QueryBuilder(Type tableType)
+    {
+        _tableName = tableType.Name;
+    }
 
     public QueryBuilder()
     {
@@ -32,32 +34,59 @@ public class QueryBuilder<TModel>
         return this;
     }
 
+    public QueryBuilder<TModel> Count(TModel model)
+    {
+        _ = CheckType();
+
+        _query += $"SELECT COUNT(*) FROM [dbo].[{_tableName}] ";
+        _model = model;
+        return this;
+    }
+
     public QueryBuilder<TModel> Where(Expression<Func<TModel, object>> expression, WhereType type = WhereType.Equal)
     {
         PropertyInfo property = GetPropertyInfo(expression);
         object? value = property.GetValue(_model);
 
-        if (!_query.Contains("WHERE"))
-            _query += " WHERE ";
-
-        _query += $" [{property.Name}] ";
-        _query += BuildQueryValue(type, value);
+        if (value is not null && !string.IsNullOrEmpty(value.ToString()))
+        {
+            _query += AddCondition("");
+            _query += $" [{property.Name}] ";
+            _query += BuildQueryValue(type, value);
+        }
 
         return this;
     }
 
-    public QueryBuilder<TModel> And()
+    public QueryBuilder<TModel> OrWhere(Expression<Func<TModel, object>> expression, WhereType type = WhereType.Equal)
     {
-        _query += " AND ";
+        PropertyInfo property = GetPropertyInfo(expression);
+        object? value = property.GetValue(_model);
+
+        if (value is not null && !string.IsNullOrEmpty(value.ToString()))
+        {
+            _query += AddCondition("OR");
+            _query += $" [{property.Name}] ";
+            _query += BuildQueryValue(type, value);
+        }
+
         return this;
     }
 
-    public QueryBuilder<TModel> Or()
+    public QueryBuilder<TModel> AndWhere(Expression<Func<TModel, object>> expression, WhereType type = WhereType.Equal)
     {
-        _query += " OR ";
+        PropertyInfo property = GetPropertyInfo(expression);
+        object? value = property.GetValue(_model);
+
+        if (value is not null && !string.IsNullOrEmpty(value.ToString()))
+        {
+            _query += AddCondition("AND");
+            _query += $" [{property.Name}] ";
+            _query += BuildQueryValue(type, value);
+        }
+
         return this;
     }
-
 
     public QueryBuilder<TModel> OrderBy(Expression<Func<TModel, object>> expression, OrderType orderType = OrderType.Non)
     {
@@ -73,14 +102,25 @@ public class QueryBuilder<TModel>
         return this;
     }
 
+
     public QueryBuilder<TModel> WithPagination(int page, int pageSize)
     {
-        _query += $" OFFSET {page} FETCH NEXT {pageSize} ROWS ONLY ";
+        if (page != 0 && pageSize != 0)
+            _query += $" OFFSET {(page - 1) * pageSize} ROWS FETCH NEXT {pageSize} ROWS ONLY";
         return this;
     }
 
     public string Build()
-        => _query.ToString();
+    {
+        _query = RemoveUnusedWhereClauses(_query);
+        return _query.Trim();
+    }
+
+    // Remove WHERE clauses that don't affect the query
+    // Example: "SELECT * FROM MyTable WHERE 1=1 AND ColumnName = 'Value'"
+    static string RemoveUnusedWhereClauses(string query) =>
+        WhereRegex().Replace(query, "WHERE ");
+
 
     static PropertyInfo GetPropertyInfo<T, P>(Expression<Func<T, P>> property)
     {
@@ -96,7 +136,7 @@ public class QueryBuilder<TModel>
         throw new ArgumentException($"The expression doesn't indicate a valid property. [ {property} ]");
     }
 
-    static string FormatValue(object? value)
+    static string FormatValue(object value)
             => value switch
             {
                 null => "",
@@ -115,7 +155,7 @@ public class QueryBuilder<TModel>
             _ => (" = ", "", "")
         };
 
-    static string BuildQueryValue(WhereType type, object? value)
+    static string BuildQueryValue(WhereType type, object value)
     {
         (string format, string startWith, string endWith) = QueryFormat(type);
         string valueFormat = FormatValue(value);
@@ -132,4 +172,10 @@ public class QueryBuilder<TModel>
         }
         return _tableName;
     }
+
+    string AddCondition(string condition)
+           => _query.Contains("WHERE") ? $" {condition} " : " WHERE ";
+
+    [GeneratedRegex(@"\bWHERE\s+1=1\s+AND\s+", RegexOptions.IgnoreCase, "en-US")]
+    private static partial Regex WhereRegex();
 }
