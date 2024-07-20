@@ -64,3 +64,23 @@ QueryBuilder<Table> query = new QueryBuilder<Table>()
                 .Where(t=> t.Name)
                 .OrWhere(t=> t.Age);
 ```
+
+## Type of query
+``` Csharp
+public enum WhereType
+{
+    Equal,
+    NotEqual,
+    Is,
+    Like,
+}
+```
+#### in where queries can use these types 
+
+``` Csharp
+// Create query
+QueryBuilder<Table> query = new QueryBuilder<Table>()
+                .Count(instance)
+                .Where(t=> t.Name,WhereType.Like)
+                .OrWhere(t=> t.Age,WhereType.NotEqual);
+```
